@@ -2,9 +2,11 @@
 
 Since Snapchat wants you to pay for more than 5GB of memories, this script downloads all your memories. The version Snapchat provides has bugs where it says 100% downloaded but actually downloaded nothing (at least in some cases).
 
-## Disclaimer
+## Credits
 
-Everything was coded quickly to get it working. It worked for me and I think it's even better than Snapchat's original since it adds metadata to files (which Snapchat doesn't). Feel free to contribute! 👍🙏
+This is a fork of [ManuelPuchner/snapchat-memories-downloader](https://github.com/ManuelPuchner/snapchat-memories-downloader) with improvements for zero-setup usage and test mode. Thanks to Manuel for the original implementation! 🙏
+
+Feel free to contribute! 👍
 
 ## 🚀 Quick Start (Zero Setup Required)
 
