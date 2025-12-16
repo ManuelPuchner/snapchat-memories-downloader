@@ -1,18 +1,18 @@
 #!/usr/bin/env python3
 """
-Script zum Erkennen und Entfernen von Duplikaten in entpackten ZIP-Ordnern
+Script to detect and remove duplicates in extracted ZIP folders.
 """
 
 import os
 import hashlib
 from pathlib import Path
 
-# Konfiguration
+# Configuration
 DOWNLOAD_FOLDER = 'snapchat_memories'
-DRY_RUN = True  # Auf False setzen um tatsächlich zu löschen
+DRY_RUN = True  # Set to False to actually delete files
 
 def calculate_file_hash(filepath):
-    """Berechnet SHA256-Hash einer Datei"""
+    """Calculate SHA256 hash for a file."""
     sha256_hash = hashlib.sha256()
     try:
         with open(filepath, "rb") as f:
@@ -20,11 +20,11 @@ def calculate_file_hash(filepath):
                 sha256_hash.update(byte_block)
         return sha256_hash.hexdigest()
     except Exception as e:
-        print(f"❌ Fehler beim Hash-Berechnen für {filepath}: {e}")
+        print(f"❌ Error while computing hash for {filepath}: {e}")
         return None
 
 def find_duplicates_in_folder(folder_path):
-    """Findet Duplikate in einem Ordner basierend auf Hash"""
+    """Find duplicates in a folder based on file hashes."""
     files = []
     
     for item in os.listdir(folder_path):
@@ -35,7 +35,7 @@ def find_duplicates_in_folder(folder_path):
     if len(files) < 2:
         return []
     
-    # Berechne Hashes für alle Dateien
+    # Calculate hashes for all files
     file_hashes = {}
     for filepath in files:
         file_hash = calculate_file_hash(filepath)
@@ -44,14 +44,14 @@ def find_duplicates_in_folder(folder_path):
                 file_hashes[file_hash] = []
             file_hashes[file_hash].append(filepath)
     
-    # Finde Duplikate (Hash mit mehreren Dateien)
+    # Find duplicates (hash present for multiple files)
     duplicates = []
     for file_hash, filepaths in file_hashes.items():
         if len(filepaths) > 1:
-            # Sortiere: Behalte die Datei, die zum Ordnernamen passt
+            # Keep the file whose name matches the folder name
             folder_name = os.path.basename(folder_path)
             
-            # Extrahiere UUID/ID aus Ordnername (Format: YYYYMMDD_HHMMSS_UUID)
+            # Extract UUID/ID from folder name (format: YYYYMMDD_HHMMSS_UUID)
             folder_uuid = folder_name.split('_', 2)[-1] if '_' in folder_name else folder_name
             
             primary = None
@@ -59,13 +59,13 @@ def find_duplicates_in_folder(folder_path):
             
             for filepath in filepaths:
                 filename = os.path.basename(filepath)
-                # Prüfe ob Dateiname mit Ordner-UUID beginnt
+                # Check if filename starts with the folder UUID
                 if filename.startswith(folder_uuid):
                     primary = filepath
                 else:
                     to_delete.append(filepath)
             
-            # Falls kein Match mit Ordner-UUID, behalte die erste Datei
+            # If no match with folder UUID, keep the first file
             if primary is None:
                 primary = filepaths[0]
                 to_delete = filepaths[1:]
@@ -80,16 +80,16 @@ def find_duplicates_in_folder(folder_path):
     return duplicates
 
 def process_folders(directory, dry_run=True):
-    """Verarbeitet alle Ordner und findet Duplikate"""
+    """Process all folders and find duplicates."""
     if not os.path.exists(directory):
-        print(f"❌ Ordner '{directory}' existiert nicht!")
+        print(f"❌ Folder '{directory}' does not exist!")
         return
     
     folders_with_duplicates = []
     total_duplicates = 0
     deleted_count = 0
     
-    # Durchsuche alle Unterordner
+    # Iterate through all subfolders
     for item in os.listdir(directory):
         item_path = os.path.join(directory, item)
         
@@ -103,66 +103,66 @@ def process_folders(directory, dry_run=True):
                     'duplicates': duplicates
                 })
                 
-                # Zähle alle zu löschenden Dateien
+                # Count all files to delete
                 for dup in duplicates:
                     total_duplicates += len(dup['delete'])
     
     if not folders_with_duplicates:
-        print("✅ Keine Duplikate gefunden!")
+        print("✅ No duplicates found!")
         return
     
-    print(f"📊 {len(folders_with_duplicates)} Ordner mit Duplikaten gefunden")
-    print(f"🗑️  Insgesamt {total_duplicates} Duplikate zu löschen\n")
+    print(f"📊 Found {len(folders_with_duplicates)} folder(s) with duplicates")
+    print(f"🗑️  Total duplicates to delete: {total_duplicates}\n")
     print("=" * 80)
     print()
     
-    # Verarbeite jeden Ordner
+    # Process each folder
     for folder_info in folders_with_duplicates:
         folder_name = folder_info['folder']
         duplicates = folder_info['duplicates']
         
         print(f"📁 {folder_name}/")
-        print(f"   Gefunden: {len(duplicates)} Duplikat-Gruppe(n)")
+        print(f"   Found: {len(duplicates)} duplicate group(s)")
         print()
         
         for dup in duplicates:
             keep_file = os.path.basename(dup['keep'])
-            print(f"   ✅ BEHALTEN: {keep_file}")
+            print(f"   ✅ KEEP: {keep_file}")
             
             for delete_file in dup['delete']:
                 delete_filename = os.path.basename(delete_file)
-                print(f"   🗑️  LÖSCHEN:  {delete_filename}")
+                print(f"   🗑️  DELETE:  {delete_filename}")
                 
                 if not dry_run:
                     try:
                         os.remove(delete_file)
                         deleted_count += 1
-                        print(f"      → Gelöscht!")
+                        print(f"      → Deleted!")
                     except Exception as e:
-                        print(f"      ❌ Fehler: {e}")
+                        print(f"      ❌ Error: {e}")
             
             print()
         
         print("-" * 80)
         print()
     
-    # Zusammenfassung
+    # Summary
     print("=" * 80)
-    print("ZUSAMMENFASSUNG")
+    print("SUMMARY")
     print("=" * 80)
     
     if dry_run:
-        print("⚠️  DRY RUN MODUS - Keine Dateien gelöscht!")
+        print("⚠️  DRY RUN MODE - No files deleted!")
         print()
-        print(f"📊 Ordner mit Duplikaten: {len(folders_with_duplicates)}")
-        print(f"🗑️  Dateien zum Löschen: {total_duplicates}")
+        print(f"📊 Folders with duplicates: {len(folders_with_duplicates)}")
+        print(f"🗑️  Files to delete: {total_duplicates}")
         print()
-        print("💡 Um die Duplikate zu löschen:")
-        print("   Setze DRY_RUN = False im Script")
+        print("💡 To delete the duplicates:")
+        print("   Set DRY_RUN = False in the script")
     else:
-        print(f"✅ Erfolgreich gelöscht: {deleted_count} Dateien")
+        print(f"✅ Successfully deleted: {deleted_count} files")
         if deleted_count < total_duplicates:
-            print(f"⚠️  Fehler bei: {total_duplicates - deleted_count} Dateien")
+            print(f"⚠️  Errors on: {total_duplicates - deleted_count} files")
 
 def main():
     print("=" * 80)
@@ -171,13 +171,13 @@ def main():
     print()
     
     if DRY_RUN:
-        print("⚠️  DRY RUN MODUS - Nur Vorschau, keine Änderungen")
+        print("⚠️  DRY RUN MODE - Preview only, no changes")
         print()
     else:
-        print("⚠️  ACHTUNG: Duplikate werden wirklich gelöscht!")
-        response = input("Fortfahren? (j/n): ")
+        print("⚠️  WARNING: Duplicates will actually be deleted!")
+        response = input("Continue? (y/n): ")
         if response.lower() not in ['j', 'y', 'ja', 'yes']:
-            print("Abgebrochen.")
+            print("Cancelled.")
             return
         print()
     
