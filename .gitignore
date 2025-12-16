@@ -1,7 +1,30 @@
-snapchat_memories/
+# Virtual environment
 .venv/
-memories_history.html
-download_errors.json
+venv/
+env/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Downloaded memories (large files, don't commit)
+snapchat_memories/
+
+# Progress/state files
 downloaded_files.json
+download_errors.json
 metadata.json
+
+# User's data file
+memories_history.html
+
+# macOS
 .DS_Store
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
