@@ -15,7 +15,7 @@ from PIL import Image
 # Configuration
 SOURCE_FOLDER = 'snapchat_memories'
 OUTPUT_FOLDER = 'snapchat_memories_combined'
-DEFAULT_JPEG_QUALITY = 95
+DEFAULT_JPEG_QUALITY = 100  # Maximum quality - adjust lower (e.g., 85-95) to save disk space
 
 # ==============================================================================
 # DEDUPLICATION FUNCTIONS (from delete-dupes.py)
@@ -98,6 +98,10 @@ def process_deduplication(directory, dry_run=True):
     folders_with_duplicates = []
     total_duplicates = 0
     deleted_count = 0
+    deletion_errors = []  # Track errors
+    
+    print("🔍 Scanning for duplicates...")
+    print()
     
     # Search all subfolders
     for item in os.listdir(directory):
@@ -126,39 +130,51 @@ def process_deduplication(directory, dry_run=True):
     print("=" * 80)
     print()
     
+    total_folders = len(folders_with_duplicates)
+    print(f"🔄 Processing {total_folders} folders...")
+    print()
+    
     # Process each folder
-    for folder_info in folders_with_duplicates:
+    for idx, folder_info in enumerate(folders_with_duplicates, 1):
         folder_name = folder_info['folder']
         duplicates = folder_info['duplicates']
         
-        print(f"📁 {folder_name}/")
-        print(f"   Found: {len(duplicates)} duplicate group(s)")
+        print(f"[{idx}/{total_folders}] 📁 {folder_name}/")
+        print(f"            Found: {len(duplicates)} duplicate group(s)")
         print()
         
         for dup in duplicates:
             keep_file = os.path.basename(dup['keep'])
-            print(f"   ✅ KEEP:   {keep_file}")
+            print(f"            ✅ KEEP:   {keep_file}")
             
             for delete_file in dup['delete']:
                 delete_filename = os.path.basename(delete_file)
-                print(f"   🗑️  DELETE: {delete_filename}")
+                print(f"            🗑️  DELETE: {delete_filename}")
                 
                 if not dry_run:
                     try:
                         os.remove(delete_file)
                         deleted_count += 1
-                        print(f"      → Deleted!")
+                        print(f"               → Deleted!")
                     except Exception as e:
-                        print(f"      ❌ Error: {e}")
+                        print(f"               ❌ Error: {e}")
+                        deletion_errors.append({
+                            'file': delete_filename,
+                            'folder': folder_name,
+                            'error': str(e)
+                        })
             
             print()
         
         print("-" * 80)
         print()
     
+    print("🔄 Generating final report...")
+    print()
+    
     # Summary
     print("=" * 80)
-    print("SUMMARY")
+    print("📊 SUMMARY")
     print("=" * 80)
     
     if dry_run:
@@ -173,6 +189,17 @@ def process_deduplication(directory, dry_run=True):
         print(f"✅ Successfully deleted: {deleted_count} files")
         if deleted_count < total_duplicates:
             print(f"⚠️  Errors with: {total_duplicates - deleted_count} files")
+        
+        # Print detailed error list if there were errors
+        if deletion_errors:
+            print()
+            print("=" * 80)
+            print("❌ DELETION ERRORS")
+            print("=" * 80)
+            for error_info in deletion_errors:
+                print(f"\n📁 Folder: {error_info['folder']}")
+                print(f"   File: {error_info['file']}")
+                print(f"   Error: {error_info['error']}")
 
 # ==============================================================================
 # OVERLAY COMBINING FUNCTIONS (from combine-overlays.py)
@@ -233,9 +260,17 @@ def find_overlay_folders(directory):
 def combine_image(base_path, overlay_path, output_path, quality=DEFAULT_JPEG_QUALITY):
     """
     Composite overlay PNG onto base JPG image
-    Preserves EXIF metadata from base image
+    Preserves EXIF metadata and file timestamps from overlay (which has correct date)
+    Uses birth time (created date) which is not affected by metadata writes
     """
     try:
+        # Get original file timestamps from overlay (overlay has correct date)
+        stat_info = os.stat(overlay_path)
+        original_atime = stat_info.st_atime  # Access time
+        # Use birth time (st_birthtime) instead of modification time
+        # Birth time is the creation date and doesn't change when metadata is written
+        original_mtime = stat_info.st_birthtime if hasattr(stat_info, 'st_birthtime') else stat_info.st_mtime
+        
         # Load base image and overlay
         base_img = Image.open(base_path)
         base = base_img.convert('RGB')
@@ -261,6 +296,9 @@ def combine_image(base_path, overlay_path, output_path, quality=DEFAULT_JPEG_QUA
         else:
             base.save(output_path, 'JPEG', quality=quality)
         
+        # Restore original file timestamps
+        os.utime(output_path, (original_atime, original_mtime))
+        
         return True
     except Exception as e:
         print(f"      ❌ Error combining image: {e}")
@@ -269,9 +307,17 @@ def combine_image(base_path, overlay_path, output_path, quality=DEFAULT_JPEG_QUA
 def combine_video(base_path, overlay_path, output_path):
     """
     Burn overlay PNG onto video using ffmpeg
-    Preserves video codec, audio, and metadata
+    Preserves video codec, audio, metadata, and file timestamps from overlay (which has correct date)
+    Uses birth time (created date) which is not affected by metadata writes
     """
     try:
+        # Get original file timestamps from overlay (overlay has correct date)
+        stat_info = os.stat(overlay_path)
+        original_atime = stat_info.st_atime  # Access time
+        # Use birth time (st_birthtime) instead of modification time
+        # Birth time is the creation date and doesn't change when metadata is written
+        original_mtime = stat_info.st_birthtime if hasattr(stat_info, 'st_birthtime') else stat_info.st_mtime
+        
         # ffmpeg command to overlay PNG on video
         # Using overlay filter to composite the PNG on top
         cmd = [
@@ -290,6 +336,10 @@ def combine_video(base_path, overlay_path, output_path):
             text=True,
             check=True
         )
+        
+        # Restore original file timestamps
+        os.utime(output_path, (original_atime, original_mtime))
+        
         return True
     except subprocess.CalledProcessError as e:
         print(f"      ❌ ffmpeg error: {e.stderr}")
@@ -335,10 +385,13 @@ def process_overlay_combining(source_dir, output_dir, dry_run=True, quality=DEFA
     processed_videos = 0
     skipped_videos = 0
     errors = 0
+    error_details = []  # Track error details
+    
+    total_folders = len(overlay_folders)
     
     for idx, folder_info in enumerate(overlay_folders, 1):
         folder_name = folder_info['folder_name']
-        print(f"[{idx}/{len(overlay_folders)}] 📁 {folder_name}")
+        print(f"[{idx}/{total_folders}] 📁 {folder_name}")
         
         # Determine output filename
         # Remove trailing slash and use folder name as base
@@ -349,9 +402,9 @@ def process_overlay_combining(source_dir, output_dir, dry_run=True, quality=DEFA
             output_path = os.path.join(output_dir, output_filename)
             
             if dry_run:
-                print(f"   Would create: {output_filename}")
+                print(f"                Would create: {output_filename}")
             else:
-                print(f"   Creating: {output_filename}")
+                print(f"                Creating: {output_filename}")
                 success = combine_image(
                     folder_info['base_image'],
                     folder_info['overlays'][0],  # Use first overlay
@@ -360,22 +413,27 @@ def process_overlay_combining(source_dir, output_dir, dry_run=True, quality=DEFA
                 )
                 if success:
                     processed_images += 1
-                    print(f"   ✅ Saved!")
+                    print(f"                ✅ Saved!")
                 else:
                     errors += 1
+                    error_details.append({
+                        'folder': folder_name,
+                        'type': 'image',
+                        'output': output_filename
+                    })
         
         elif folder_info['is_video']:
             if not has_ffmpeg:
-                print(f"   ⏭️  Skipping video (ffmpeg not available)")
+                print(f"                ⏭️  Skipping video (ffmpeg not available)")
                 skipped_videos += 1
             else:
                 output_filename += '.mp4'
                 output_path = os.path.join(output_dir, output_filename)
                 
                 if dry_run:
-                    print(f"   Would create: {output_filename}")
+                    print(f"                Would create: {output_filename}")
                 else:
-                    print(f"   Creating: {output_filename}")
+                    print(f"                Creating: {output_filename}")
                     success = combine_video(
                         folder_info['base_video'],
                         folder_info['overlays'][0],  # Use first overlay
@@ -383,15 +441,23 @@ def process_overlay_combining(source_dir, output_dir, dry_run=True, quality=DEFA
                     )
                     if success:
                         processed_videos += 1
-                        print(f"   ✅ Saved!")
+                        print(f"                ✅ Saved!")
                     else:
                         errors += 1
+                        error_details.append({
+                            'folder': folder_name,
+                            'type': 'video',
+                            'output': output_filename
+                        })
         
         print()
     
+    print("🔄 Generating final report...")
+    print()
+    
     # Summary
     print("=" * 80)
-    print("SUMMARY")
+    print("📊 SUMMARY")
     print("=" * 80)
     
     if dry_run:
@@ -415,6 +481,17 @@ def process_overlay_combining(source_dir, output_dir, dry_run=True, quality=DEFA
             print(f"   ❌ Errors: {errors}")
         print()
         print(f"📂 Files saved to: {output_dir}/")
+        
+        # Print detailed error list if there were errors
+        if error_details:
+            print()
+            print("=" * 80)
+            print("❌ PROCESSING ERRORS")
+            print("=" * 80)
+            for error_info in error_details:
+                print(f"\n📁 Folder: {error_info['folder']}")
+                print(f"   Type: {error_info['type']}")
+                print(f"   Output: {error_info['output']}")
 
 # ==============================================================================
 # CLI INTERFACE
@@ -510,7 +587,7 @@ Examples:
   # Actually create combined files
   python overlay-manager.py combine --execute
   
-  # Custom JPEG quality
+  # Custom JPEG quality (lower values save space)
   python overlay-manager.py combine --execute --quality 90
         """
     )
@@ -550,7 +627,7 @@ Examples:
         '--quality',
         type=int,
         default=DEFAULT_JPEG_QUALITY,
-        help=f'JPEG quality for combined images (1-100, default: {DEFAULT_JPEG_QUALITY})'
+        help=f'JPEG quality for combined images (1-100, default: {DEFAULT_JPEG_QUALITY}). Lower values (85-95) save disk space.'
     )
     combine_parser.add_argument(
         '--skip-prompt',

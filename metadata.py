@@ -92,7 +92,7 @@ def extract_unique_id_from_url(url):
         return hashlib.md5(url.encode()).hexdigest()
 
 def write_gps_to_file(filepath, latitude, longitude):
-    """Writes GPS coordinates to the EXIF data of the file"""
+    """Writes GPS coordinates to the EXIF data of the file and preserves timestamps"""
     if not exiftool_available:
         return False
     
@@ -103,17 +103,25 @@ def write_gps_to_file(filepath, latitude, longitude):
         file_ext = os.path.splitext(filepath)[1].lower()
         filename = os.path.basename(filepath)
         
-        # Überspringe spezielle Dateien
+        # Skip special files
         if '-overlay' in filename.lower() or 'thumbnail' in filename.lower():
             return False
         
-        # Konvertiere zu EXIF GPS-Format
-        # GPSLatitude und GPSLongitude benötigen Ref (N/S, E/W)
+        # IMPORTANT: Save original timestamps BEFORE modifying the file
+        stat_info = os.stat(filepath)
+        original_atime = stat_info.st_atime  # Access time
+        original_mtime = stat_info.st_mtime  # Modification time
+        original_birthtime = stat_info.st_birthtime if hasattr(stat_info, 'st_birthtime') else None
+        
+        # Convert to EXIF GPS format
+        # GPSLatitude and GPSLongitude require Ref (N/S, E/W)
         lat_ref = 'N' if latitude >= 0 else 'S'
         lon_ref = 'E' if longitude >= 0 else 'W'
         
         abs_lat = abs(latitude)
         abs_lon = abs(longitude)
+        
+        result = None
         
         if file_ext in ['.jpg', '.jpeg', '.png']:
             result = subprocess.run([
@@ -127,8 +135,6 @@ def write_gps_to_file(filepath, latitude, longitude):
                 filepath
             ], capture_output=True)
             
-            return result.returncode == 0
-            
         elif file_ext in ['.mp4', '.mov', '.avi']:
             result = subprocess.run([
                 'exiftool',
@@ -140,13 +146,31 @@ def write_gps_to_file(filepath, latitude, longitude):
                 f'-GPSLongitudeRef={lon_ref}',
                 filepath
             ], capture_output=True)
+        
+        if result and result.returncode == 0:
+            # Restore the original timestamps after exiftool modifies the file
+            os.utime(filepath, (original_atime, original_mtime))
             
-            return result.returncode == 0
+            # On macOS, also restore birth time (creation date) using SetFile command
+            if original_birthtime is not None:
+                try:
+                    from datetime import datetime
+                    dt = datetime.fromtimestamp(original_birthtime)
+                    # SetFile format: "MM/DD/YYYY HH:MM:SS"
+                    date_str = dt.strftime('%m/%d/%Y %H:%M:%S')
+                    # Try SetFile first (from Xcode Command Line Tools)
+                    subprocess.run(['SetFile', '-d', date_str, filepath], 
+                                 capture_output=True, check=False)
+                except Exception:
+                    # If birth time restoration fails, at least we have mtime/atime restored
+                    pass
+            
+            return True
         
         return False
         
     except Exception as e:
-        print(f"[GPS ERROR] Fehler beim Schreiben für {os.path.basename(filepath)}: {e}")
+        print(f"❌ GPS Error writing for {os.path.basename(filepath)}: {e}")
         return False
 
 def process_files_in_folder(folder_path, latitude, longitude):
@@ -167,7 +191,7 @@ def process_files_in_folder(folder_path, latitude, longitude):
 
 def main():
     print("=" * 60)
-    print("Location Metadata Extractor & Writer")
+    print("📍 Location Metadata Extractor & Writer")
     print("=" * 60)
     print()
     
@@ -210,19 +234,25 @@ def main():
     files_without_location = 0
     gps_written_count = 0
     gps_failed_count = 0
+    gps_errors = []  # Track detailed error information
     
-    for i, url in enumerate(urls):
+    total_urls = len(urls)
+    print(f"🔄 Processing {total_urls} URLs...")
+    print()
+    
+    for i, url in enumerate(urls, 1):
         unique_id = extract_unique_id_from_url(url)
         
         # Check if file was downloaded
         if unique_id not in downloaded_files:
+            print(f"[{i}/{total_urls}] ⏭️  Skipped (not downloaded)")
             continue
         
         file_info = downloaded_files[unique_id]
         filename = file_info.get('filename')
         
         # Add GPS coordinates (if available)
-        location = locations[i] if i < len(locations) else None
+        location = locations[i-1] if i-1 < len(locations) else None
         
         metadata[unique_id] = {
             'filename': filename,
@@ -242,21 +272,34 @@ def main():
                 if os.path.isfile(filepath):
                     if write_gps_to_file(filepath, location['latitude'], location['longitude']):
                         gps_written_count += 1
-                        print(f"✅ GPS written: {filename}")
+                        print(f"[{i}/{total_urls}] ✅ {filename} - GPS written")
                     else:
                         gps_failed_count += 1
-                        print(f"⚠️  GPS failed: {filename}")
+                        gps_errors.append({
+                            'filename': filename,
+                            'unique_id': unique_id,
+                            'latitude': location['latitude'],
+                            'longitude': location['longitude']
+                        })
+                        print(f"[{i}/{total_urls}] ⚠️  {filename} - GPS write failed")
                 
                 elif os.path.isdir(filepath.replace('.zip', '')):
                     # Unpacked ZIP folder
                     folder_path = filepath.replace('.zip', '')
                     count = process_files_in_folder(folder_path, location['latitude'], location['longitude'])
                     gps_written_count += count
-                    print(f"✅ GPS written for {count} files in: {os.path.basename(folder_path)}/")
+                    print(f"[{i}/{total_urls}] ✅ {filename} - GPS written to {count} files in folder")
+                else:
+                    print(f"[{i}/{total_urls}] 📄 {filename} - Processed (file not found)")
+            else:
+                print(f"[{i}/{total_urls}] 📄 {filename} - Processed (no exiftool)")
         else:
             files_without_location += 1
+            print(f"[{i}/{total_urls}] 📄 {filename} - No GPS data")
     
     # Save metadata.json
+    print()
+    print("🔄 Generating final report...")
     print()
     print(f"💾 Saving '{METADATA_JSON}'...")
     
@@ -266,9 +309,9 @@ def main():
     # Summary
     print()
     print("=" * 60)
-    print("SUMMARY")
+    print("📊 SUMMARY")
     print("=" * 60)
-    print(f"📊 Total processed: {len(metadata)} files")
+    print(f"Total processed: {len(metadata)} files")
     print(f"📍 With GPS coordinates: {files_with_location} files")
     print(f"❌ Without GPS coordinates: {files_without_location} files")
     
@@ -280,6 +323,18 @@ def main():
     
     print()
     print(f"✅ '{METADATA_JSON}' successfully created!")
+    
+    # Print detailed error list if there were GPS errors
+    if gps_failed_count > 0 and gps_errors:
+        print()
+        print("=" * 60)
+        print("⚠️  FAILED GPS WRITES")
+        print("=" * 60)
+        for error_info in gps_errors:
+            print(f"\n📄 File: {error_info['filename']}")
+            print(f"   ID: {error_info['unique_id']}")
+            print(f"   Location: {error_info['latitude']}, {error_info['longitude']}")
+        print(f"\n💡 These files may be in unsupported formats or have other issues.")
 
 if __name__ == '__main__':
     main()
