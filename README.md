@@ -70,10 +70,31 @@ Snaps with text, emojis or stickers are downloaded as zips containing all the la
 python metadata.py
 ```
 
-10. deleting duplicate entries in folders with overlays
+10. Managing Overlays (Optional)
+The `overlay-manager.py` script provides two utilities for managing your Snapchat memories:
+
+**Option A: Remove duplicate files** (in folders with overlay layers)
 ```bash
-python delete-dupes.py
+# Preview what will be deleted (dry run)
+python overlay-manager.py dedupe
+
+# Actually delete duplicates
+python overlay-manager.py dedupe --execute
 ```
+
+**Option B: Combine overlays** (merge text/stickers/captions onto photos/videos)
+```bash
+# Preview what will be created (dry run)
+python overlay-manager.py combine
+
+# Actually create combined files (saved to snapchat_memories_combined/)
+python overlay-manager.py combine --execute
+
+# Custom JPEG quality (1-100, default: 95)
+python overlay-manager.py combine --execute --quality 90
+```
+
+Note: Video overlay combining requires ffmpeg. Install with: `brew install ffmpeg` (macOS)
 
 11. Reimport data (mac)
 ```bash
