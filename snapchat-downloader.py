@@ -16,45 +16,45 @@ HTML_FILE = 'memories_history.html'
 DOWNLOAD_FOLDER = 'snapchat_memories'
 LOG_FILE = 'downloaded_files.json'
 ERROR_LOG_FILE = 'download_errors.json'
-MAX_WORKERS = 5  # Anzahl paralleler Downloads
-TEST_MODE = False  # Auf True setzen für Test-Modus
-TEST_FILES_PER_THREAD = 5  # Anzahl Dateien pro Thread im Test-Modus
-USE_EXIFTOOL = True  # Auf False setzen, wenn exiftool nicht verfügbar ist
+MAX_WORKERS = 5  # Number of parallel downloads
+TEST_MODE = False  # Set to True for test mode
+TEST_FILES_PER_THREAD = 5  # Number of files per thread in test mode
+USE_EXIFTOOL = True  # Set to False if exiftool is not available
 # ----------------------------------------
 
 os.makedirs(DOWNLOAD_FOLDER, exist_ok=True)
 
-# Thread-Lock für JSON-Schreibzugriff
+# Thread-lock for JSON write access
 json_lock = threading.Lock()
 error_lock = threading.Lock()
 
-# Bereits heruntergeladene Dateien laden (jetzt mit unique_id als Key)
+# Load already downloaded files (now with unique_id as key)
 if os.path.exists(LOG_FILE):
     with open(LOG_FILE, 'r', encoding='utf-8') as f:
         downloaded_files = json.load(f)
 else:
     downloaded_files = {}
 
-# Fehlerhafte Downloads laden
+# Load failed downloads
 if os.path.exists(ERROR_LOG_FILE):
     with open(ERROR_LOG_FILE, 'r', encoding='utf-8') as f:
         error_log = json.load(f)
 else:
     error_log = {}
 
-# HTML einlesen und parsen
+# Read and parse HTML
 with open(HTML_FILE, 'r', encoding='utf-8') as f:
     html_content = f.read()
 
 soup = BeautifulSoup(html_content, 'html.parser')
 
-# Alle downloadMemories Links und zugehörige Daten extrahieren
+# Extract all downloadMemories links and associated data
 pattern = r"downloadMemories\('(.+?)',\s*this,\s*(true|false)\)"
 matches = re.findall(pattern, html_content)
 
-# Aufnahmedatum aus der Tabelle extrahieren
+# Extract capture date from table
 def extract_dates_from_table():
-    """Extrahiert alle Aufnahmedaten aus der Tabelle"""
+    """Extracts all capture dates from the table"""
     dates = []
     table = soup.select_one('body > div.rightpanel > table > tbody')
     if table:
@@ -67,11 +67,11 @@ def extract_dates_from_table():
     return dates
 
 dates = extract_dates_from_table()
-print(f"{len(matches)} Dateien gefunden, {len(dates)} Datum-Einträge gefunden.")
+print(f"{len(matches)} files found, {len(dates)} date entries found.")
 
-# Prüfe ob exiftool verfügbar ist
+# Check if exiftool is available
 def check_exiftool():
-    """Prüft, ob exiftool installiert ist"""
+    """Checks if exiftool is installed"""
     try:
         subprocess.run(['exiftool', '-ver'], capture_output=True, check=True)
         return True
@@ -80,18 +80,18 @@ def check_exiftool():
 
 exiftool_available = check_exiftool() if USE_EXIFTOOL else False
 if USE_EXIFTOOL and not exiftool_available:
-    print("WARNUNG: exiftool nicht gefunden. Metadaten werden nicht geschrieben.")
+    print("WARNING: exiftool not found. Metadata will not be written.")
     print("Installation: https://exiftool.org/")
 elif exiftool_available:
-    print("exiftool gefunden - Metadaten werden in Dateien geschrieben.")
+    print("exiftool found - Metadata will be written to files.")
 
 def extract_unique_id_from_url(url):
-    """Extrahiert die eindeutige ID (mid) aus der URL"""
+    """Extracts the unique ID (mid) from the URL"""
     mid_match = re.search(r'mid=([a-zA-Z0-9\-]+)', url)
     if mid_match:
         return mid_match.group(1)
     else:
-        # Fallback: Hash der gesamten URL
+        # Fallback: Hash of entire URL
         import hashlib
         return hashlib.md5(url.encode()).hexdigest()
 
@@ -153,7 +153,7 @@ def extract_and_cleanup_zip(zip_path):
         print(f"[ZIP] Entpackt und ZIP gelöscht: {os.path.basename(zip_path)}")
         return extract_folder
     except Exception as e:
-        print(f"[ZIP ERROR] Fehler beim Entpacken von {os.path.basename(zip_path)}: {e}")
+        print(f"[ZIP ERROR] Error extracting {os.path.basename(zip_path)}: {e}")
         return None
 
 def parse_date_string(date_str):
@@ -235,7 +235,7 @@ def write_metadata_to_file(filepath, date_str, silent=False):
         
     except Exception as e:
         if not silent:
-            print(f"[METADATA] Konnte Metadaten nicht schreiben für: {os.path.basename(filepath)}")
+            print(f"[METADATA] Could not write metadata for: {os.path.basename(filepath)}")
         return False
 
 def process_files_in_folder(folder_path, date_str):
@@ -273,7 +273,7 @@ def log_error(unique_id, url, date_str, error_message, index):
             with open(ERROR_LOG_FILE, 'w', encoding='utf-8') as f:
                 json.dump(error_log, f, indent=2, ensure_ascii=False)
         except Exception as e:
-            print(f"[ERROR LOG] Fehler beim Speichern der Fehlerliste: {e}")
+            print(f"[ERROR LOG] Error saving error list: {e}")
 
 def download_file(url, is_get_request, date_str=None, index=None):
     """Lädt eine Datei herunter mit korrekter Dateierweiterung"""
@@ -348,7 +348,7 @@ def save_progress():
                 json.dump(downloaded_files, f, indent=2, ensure_ascii=False)
             return True
         except Exception as e:
-            print(f"[JSON ERROR] Fehler beim Speichern: {e}")
+            print(f"[JSON ERROR] Error saving: {e}")
             return False
 
 # Download-Liste vorbereiten
@@ -394,7 +394,7 @@ with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
         # Fortschrittsanzeige
         if completed_count % 10 == 0 or completed_count == total_count:
             print(f"\n[FORTSCHRITT] {completed_count}/{total_count} Dateien bearbeitet "
-                  f"(Heruntergeladen: {downloaded_count}, Übersprungen: {skipped_count}, Fehler: {error_count})\n")
+                  f"(Downloaded: {downloaded_count}, Skipped: {skipped_count}, Errors: {error_count})\n")
 
 # Finale Speicherung
 save_progress()
@@ -403,8 +403,8 @@ print("\n=== Download-Zusammenfassung ===")
 print(f"Gesamt bearbeitet: {len(download_tasks)} Dateien")
 print(f"Neu heruntergeladen: {downloaded_count} Dateien")
 print(f"Übersprungen (bereits vorhanden): {skipped_count} Dateien")
-print(f"Fehler: {error_count} Dateien")
-print(f"Gesamt erfolgreich: {len(downloaded_files)} Dateien")
+print(f"Errors: {error_count} files")
+print(f"Total successful: {len(downloaded_files)} files")
 if error_count > 0:
-    print(f"\nFehlerhafte Downloads wurden in '{ERROR_LOG_FILE}' gespeichert.")
+    print(f"\nFailed downloads saved in '{ERROR_LOG_FILE}'.")
 print("\nAlle Downloads bearbeitet.")
